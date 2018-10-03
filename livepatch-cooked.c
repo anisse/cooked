@@ -59,6 +59,8 @@ static struct klp_func funcs[] = {
         {
 		/* we should probably hook the lower level __sock_create, but
 		 * this one is simpler to implement */
+		/* XXX: for some reason, this does not seem to prevent
+		 * socket() from working, we should find out why */
                 .old_name = "sock_create",
                 .new_func = cooked_sock_create,
         }, { }
