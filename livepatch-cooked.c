@@ -57,7 +57,9 @@ static struct klp_func funcs[] = {
                 .new_func = cooked_sock_sendmsg,
         },
         {
-                .old_name = "sock_create", /* we should probably hook the lower level sock_create_lite, but this one is simpler to implement */
+		/* we should probably hook the lower level __sock_create, but
+		 * this one is simpler to implement */
+                .old_name = "sock_create",
                 .new_func = cooked_sock_create,
         }, { }
 };
