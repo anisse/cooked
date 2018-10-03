@@ -15,8 +15,6 @@ modules:
 	make -C $(KERNEL_SOURCE) M=$(PWD) COOKED=1 $@
 endif
 
-# Works on Ubuntu. Disable to unload:
-# echo 0 | sudo tee -a /sys/kernel/livepatch/livepatch_cooked/enabled
 obj-m += livepatch-cooked.o
 # not working
 #obj-m += lsm-cooked.o
