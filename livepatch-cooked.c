@@ -1,7 +1,5 @@
 /*
- * livepatch-sample.c - Kernel Live Patching Socket Sample Module
- *
- * Copyright (C) 2014 Seth Jennings <sjenning@redhat.com>
+ * Copyright (C) 2018 Anisse Astier <anisse@astier.eu>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,84 +22,79 @@
 #include <linux/livepatch.h>
 
 /*
- * This (dumb) live patch overrides the function that prints the
- * kernel boot cmdline when /proc/cmdline is read.
- *
- * Example:
- *
- * $ cat /proc/cmdline
- * <your cmdline>
- *
- * $ insmod livepatch-sample.ko
- * $ cat /proc/cmdline
- * this has been live patched
- *
- * $ echo 0 > /sys/kernel/livepatch/livepatch_sample/enabled
- * $ cat /proc/cmdline
- * <your cmdline>
+ * This live patch attempts to disable raw sockets
  */
 
 #include <linux/socket.h>
 #include <linux/net.h>
 #include <linux/security.h>
+#include <net/sock.h>
 
-static inline int sock_sendmsg_nosec(struct socket *sock, struct msghdr *msg)
-{
-        int ret = sock->ops->sendmsg(sock, msg, msg_data_left(msg));
+static int cooked_sock_sendmsg(struct socket *sock, struct msghdr *msg) {
+        int ret;
+        if (sock->sk->sk_family == AF_PACKET)
+                return -EPERM;
+        if (sock->type == SOCK_RAW && (sock->sk->sk_family == AF_INET || sock->sk->sk_family == AF_INET6))
+                return -EPERM;
+        /* original implementation. WARNING: bypasses LSM security check*/
+        ret = sock->ops->sendmsg(sock, msg, msg_data_left(msg));
         BUG_ON(ret == -EIOCBQUEUED);
         return ret;
 }
 
-static int livepatch_sock_sendmsg(struct socket *sock, struct msghdr *msg) {
-	if (sock->type == SOCK_RAW)
-		return -1;
-	/* original implementation */
-        int err = security_socket_sendmsg(sock, msg,
-                                          msg_data_left(msg));
-
-        return err ?: sock_sendmsg_nosec(sock, msg);
+static int cooked_sock_create(int family, int type, int protocol, struct socket **res) {
+        if (family == AF_PACKET)
+                return -EPERM;
+        if (type == SOCK_RAW && (family == AF_INET || family == AF_INET6))
+                return -EPERM;
+        /* original implementation */
+        return __sock_create(current->nsproxy->net_ns, family, type, protocol, res, 0);
 }
 
 static struct klp_func funcs[] = {
-	{
-		.old_name = "sock_sendmsg",
-		.new_func = livepatch_sock_sendmsg,
-	}, { }
+        {
+                .old_name = "sock_sendmsg",
+                .new_func = cooked_sock_sendmsg,
+        },
+        {
+                .old_name = "sock_create", /* we should probably hook the lower level sock_create_lite, but this one is simpler to implement */
+                .new_func = cooked_sock_create,
+        }, { }
 };
 
 static struct klp_object objs[] = {
-	{
-		/* name being NULL means vmlinux */
-		.funcs = funcs,
-	}, { }
+        {
+                /* name being NULL means vmlinux */
+                .funcs = funcs,
+        }, { }
 };
 
 static struct klp_patch patch = {
-	.mod = THIS_MODULE,
-	.objs = objs,
+        .mod = THIS_MODULE,
+        .objs = objs,
 };
 
-static int livepatch_init(void)
+static int cooked_init(void)
 {
-	int ret;
+        int ret;
 
-	ret = klp_register_patch(&patch);
-	if (ret)
-		return ret;
-	ret = klp_enable_patch(&patch);
-	if (ret) {
-		WARN_ON(klp_unregister_patch(&patch));
-		return ret;
-	}
-	return 0;
+        ret = klp_register_patch(&patch);
+        if (ret)
+                return ret;
+        ret = klp_enable_patch(&patch);
+        if (ret) {
+                WARN_ON(klp_unregister_patch(&patch));
+                return ret;
+        }
+        return 0;
 }
 
-static void livepatch_exit(void)
+static void cooked_exit(void)
 {
-	WARN_ON(klp_unregister_patch(&patch));
+        WARN_ON(klp_unregister_patch(&patch));
 }
 
-module_init(livepatch_init);
-module_exit(livepatch_exit);
+module_init(cooked_init);
+module_exit(cooked_exit);
 MODULE_LICENSE("GPL");
 MODULE_INFO(livepatch, "Y");
