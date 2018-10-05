@@ -30,40 +30,58 @@
 #include <linux/security.h>
 #include <net/sock.h>
 
-static int cooked_sock_sendmsg(struct socket *sock, struct msghdr *msg) {
-        int ret;
-        if (sock->sk->sk_family == AF_PACKET)
-                return -EPERM;
-        if (sock->type == SOCK_RAW && (sock->sk->sk_family == AF_INET || sock->sk->sk_family == AF_INET6))
-                return -EPERM;
-        /* original implementation. WARNING: bypasses LSM security check*/
-        ret = sock->ops->sendmsg(sock, msg, msg_data_left(msg));
-        BUG_ON(ret == -EIOCBQUEUED);
-        return ret;
+static int cooked_rawv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+{
+	return -EOPNOTSUPP;
 }
-
-static int cooked_sock_create(int family, int type, int protocol, struct socket **res) {
-        if (family == AF_PACKET)
-                return -EPERM;
-        if (type == SOCK_RAW && (family == AF_INET || family == AF_INET6))
-                return -EPERM;
-        /* original implementation */
-        return __sock_create(current->nsproxy->net_ns, family, type, protocol, res, 0);
+static int cooked_raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+{
+	return -EOPNOTSUPP;
 }
-
+static int cooked_raw_init(struct sock *sk)
+{
+	return -EOPNOTSUPP;
+}
+static int cooked_rawv6_init_sk(struct sock *sk)
+{
+	return -EOPNOTSUPP;
+}
+/* AF_PACKET bypass is untested */
+static int cooked_packet_sendmsg_spkt(struct socket *sock, struct msghdr *msg,
+                               size_t len)
+{
+	return -EOPNOTSUPP;
+}
+static int cooked_packet_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+{
+	return -EOPNOTSUPP;
+}
 static struct klp_func funcs[] = {
         {
-                .old_name = "sock_sendmsg",
-                .new_func = cooked_sock_sendmsg,
+                .old_name = "raw_init",
+                .new_func = cooked_raw_init,
         },
         {
-		/* we should probably hook the lower level __sock_create, but
-		 * this one is simpler to implement */
-		/* XXX: for some reason, this does not seem to prevent
-		 * socket() from working, we should find out why */
-                .old_name = "sock_create",
-                .new_func = cooked_sock_create,
-        }, { }
+                .old_name = "rawv6_init_sk",
+                .new_func = cooked_rawv6_init_sk,
+        },
+        {
+                .old_name = "raw_sendmsg",
+                .new_func = cooked_raw_sendmsg,
+        },
+        {
+                .old_name = "rawv6_sendmsg",
+                .new_func = cooked_rawv6_sendmsg,
+        },
+        {
+                .old_name = "packet_sendmsg_spkt",
+                .new_func = cooked_packet_sendmsg_spkt,
+        },
+        {
+                .old_name = "packet_sendmsg",
+                .new_func = cooked_packet_sendmsg,
+        },
+	{ }
 };
 
 static struct klp_object objs[] = {
